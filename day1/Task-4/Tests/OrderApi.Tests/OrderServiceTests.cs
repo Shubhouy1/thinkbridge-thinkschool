@@ -32,7 +32,8 @@ public class OrderServiceTests
             Customer = new Customer { Id = 1, Name = "Ada", Email = "ada@example.com", State = "NY", IsVip = false },
             Products = [new Product { Id = 2, Name = "Widget", Price = 10m, Stock = 5 }]
         };
-        var service = new OrderService(repository, NullLogger<OrderService>.Instance);
+        var service = new OrderService(repository, NullLogger<OrderService>.Instance,
+            new DefaultShippingStrategy(), new DefaultTaxStrategy(), new DefaultDiscountStrategy());
 
         var response = await service.CreateOrderAsync(new OrderRequest
         {
@@ -52,7 +53,8 @@ public class OrderServiceTests
             Customer = new Customer { Id = 1, Name = "Ada", Email = "ada@example.com", State = "CA", IsVip = true },
             Products = [new Product { Id = 1, Name = "Widget", Price = 10m, Stock = 5 }]
         };
-        var service = new OrderService(repository, NullLogger<OrderService>.Instance);
+        var service = new OrderService(repository, NullLogger<OrderService>.Instance,
+            new DefaultShippingStrategy(), new DefaultTaxStrategy(), new DefaultDiscountStrategy());
 
         var response = await service.CreateOrderAsync(new OrderRequest
         {
@@ -73,7 +75,8 @@ public class OrderServiceTests
     private static OrderService CreateService()
     {
         var repository = new FakeOrderRepository();
-        return new OrderService(repository, NullLogger<OrderService>.Instance);
+        return new OrderService(repository, NullLogger<OrderService>.Instance,
+            new DefaultShippingStrategy(), new DefaultTaxStrategy(), new DefaultDiscountStrategy());
     }
 
     private sealed class FakeOrderRepository : IOrderRepository

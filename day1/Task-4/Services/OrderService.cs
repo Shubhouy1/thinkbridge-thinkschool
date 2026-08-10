@@ -8,11 +8,17 @@ public class OrderService : IOrderService
 {
     private readonly IOrderRepository _repository;
     private readonly ILogger<OrderService> _logger;
+    private readonly IShippingStrategy _shippingStrategy;
+    private readonly ITaxStrategy _taxStrategy;
+    private readonly IDiscountStrategy _discountStrategy;
 
-    public OrderService(IOrderRepository repository, ILogger<OrderService> logger)
+    public OrderService(IOrderRepository repository, ILogger<OrderService> logger, IShippingStrategy shippingStrategy, ITaxStrategy taxStrategy, IDiscountStrategy discountStrategy)
     {
         _repository = repository;
         _logger = logger;
+        _shippingStrategy = shippingStrategy;
+        _taxStrategy = taxStrategy;
+        _discountStrategy = discountStrategy;
     }
 
     public async Task<OrderCreateResponse> CreateOrderAsync(OrderRequest? request, string? userName, CancellationToken cancellationToken)
@@ -161,41 +167,19 @@ public class OrderService : IOrderService
         };
     }
 
-    private static decimal CalculateShipping(decimal subtotal, string country)
+    private decimal CalculateShipping(decimal subtotal, string country)
     {
-        decimal shipping = subtotal < 50m ? 9.99m : subtotal < 100m ? 4.99m : 0m;
-        if (string.Equals(country, "US", StringComparison.OrdinalIgnoreCase))
-        {
-            shipping *= 0.5m;
-        }
-
-        return shipping;
+        return _shippingStrategy.Calculate(subtotal, country);
     }
 
-    private static decimal CalculateTax(decimal subtotal, string state)
+    private decimal CalculateTax(decimal subtotal, string state)
     {
-        return state switch
-        {
-            "CA" => subtotal * 0.0725m,
-            "NY" => subtotal * 0.08m,
-            _ => subtotal * 0.05m
-        };
+        return _taxStrategy.Calculate(subtotal, state);
     }
 
-    private static decimal CalculateDiscount(decimal subtotal, string couponCode, bool isVip)
+    private decimal CalculateDiscount(decimal subtotal, string couponCode, bool isVip)
     {
-        if (string.IsNullOrWhiteSpace(couponCode))
-        {
-            return 0m;
-        }
-
-        return couponCode switch
-        {
-            "SAVE10" => subtotal * 0.10m,
-            "SAVE20" => subtotal * 0.20m,
-            "VIP" when isVip => subtotal * 0.15m,
-            _ => 0m
-        };
+        return _discountStrategy.Calculate(subtotal, couponCode, isVip);
     }
 
     private static OrderCreateResponse CreateFailure(string message)
