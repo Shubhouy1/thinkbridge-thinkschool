@@ -26,6 +26,12 @@
     <Compile Include="Repositories\IOrderRepository.cs" />
     <Compile Include="Repositories\OrderRepository.cs" />
     <Compile Include="Services\IOrderService.cs" />
+    <Compile Include="Services\IShippingStrategy.cs" />
+    <Compile Include="Services\DefaultShippingStrategy.cs" />
+    <Compile Include="Services\ITaxStrategy.cs" />
+    <Compile Include="Services\DefaultTaxStrategy.cs" />
+    <Compile Include="Services\IDiscountStrategy.cs" />
+    <Compile Include="Services\DefaultDiscountStrategy.cs" />
     <Compile Include="Services\OrderService.cs" />
   </ItemGroup>
 
