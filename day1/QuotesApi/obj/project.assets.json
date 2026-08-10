@@ -2404,11 +2404,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "c:\\Users\\shubh\\OneDrive\\Desktop\\thinkschool\\day1\\QuotesApi\\QuotesApi.csproj",
+      "projectUniqueName": "C:\\Users\\shubh\\OneDrive\\Desktop\\thinkschool\\day1\\QuotesApi\\QuotesApi.csproj",
       "projectName": "QuotesApi",
-      "projectPath": "c:\\Users\\shubh\\OneDrive\\Desktop\\thinkschool\\day1\\QuotesApi\\QuotesApi.csproj",
+      "projectPath": "C:\\Users\\shubh\\OneDrive\\Desktop\\thinkschool\\day1\\QuotesApi\\QuotesApi.csproj",
       "packagesPath": "C:\\Users\\shubh\\.nuget\\packages\\",
-      "outputPath": "c:\\Users\\shubh\\OneDrive\\Desktop\\thinkschool\\day1\\QuotesApi\\obj\\",
+      "outputPath": "C:\\Users\\shubh\\OneDrive\\Desktop\\thinkschool\\day1\\QuotesApi\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\shubh\\AppData\\Roaming\\NuGet\\NuGet.Config"

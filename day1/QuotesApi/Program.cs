@@ -1,6 +1,11 @@
-var builder = WebApplication.CreateBuilder(args);
-var app = builder.Build();
+using Microsoft.EntityFrameworkCore;
+using QuotesApi.Data;
 
-app.MapGet("/", () => "Hello World!");
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddDbContext<QuotesDbContext>(options =>
+    options.UseSqlite("Data Source=quotes.db"));
+
+var app = builder.Build();
 
 app.Run();
