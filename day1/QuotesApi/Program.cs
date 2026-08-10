@@ -10,6 +10,7 @@ builder.Services.AddDbContext<QuotesDbContext>(options =>
     options.UseSqlite("Data Source=quotes.db"));
 
 builder.Services.AddScoped<IQuoteRepository, QuoteRepository>();
+builder.Services.AddScoped<ICollectionRepository, CollectionRepository>();
 
 var app = builder.Build();
 
@@ -81,6 +82,57 @@ app.MapDelete("/api/quotes/{id}", async (
     return deleted
         ? Results.NoContent()
         : Results.NotFound();
+});
+
+// Create collection
+app.MapPost("/api/collections", async (
+    Collection collection,
+    ICollectionRepository repo,
+    CancellationToken cancellationToken) =>
+{
+    await repo.Add(collection, cancellationToken);
+
+    return Results.Created(
+        $"/api/collections/{collection.Id}",
+        collection);
+});
+
+// Add quote to collection
+app.MapPost("/api/collections/{id}/items/{quoteId}", async (
+    int id,
+    int quoteId,
+    ICollectionRepository repo,
+    CancellationToken cancellationToken) =>
+{
+    var collection = await repo.GetById(id, cancellationToken);
+
+    if (collection is null)
+        return Results.NotFound();
+
+    collection.AddItem(quoteId);
+
+    await repo.Update(collection, cancellationToken);
+
+    return Results.Ok(collection);
+});
+
+// Remove quote from collection
+app.MapDelete("/api/collections/{id}/items/{quoteId}", async (
+    int id,
+    int quoteId,
+    ICollectionRepository repo,
+    CancellationToken cancellationToken) =>
+{
+    var collection = await repo.GetById(id, cancellationToken);
+
+    if (collection is null)
+        return Results.NotFound();
+
+    collection.RemoveItem(quoteId);
+
+    await repo.Update(collection, cancellationToken);
+
+    return Results.NoContent();
 });
 
 app.Run();
