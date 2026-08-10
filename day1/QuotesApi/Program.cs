@@ -40,12 +40,20 @@ app.MapGet("/api/quotes/{id}", async (
         ? Results.NotFound()
         : Results.Ok(quote);
 });
-
 app.MapPost("/api/quotes", async (
     Quote quote,
     IQuoteRepository repo,
     CancellationToken cancellationToken) =>
 {
+    if (string.IsNullOrWhiteSpace(quote.Author) ||
+        string.IsNullOrWhiteSpace(quote.Text))
+    {
+        return Results.BadRequest(new
+        {
+            error = "Author and text are required."
+        });
+    }
+
     var created = await repo.AddAsync(quote, cancellationToken);
 
     return Results.Created(
