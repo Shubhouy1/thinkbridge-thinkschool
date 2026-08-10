@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using QuotesApi.Data;
 using QuotesApi.Models;
 using QuotesApi.Repositories;
+using QuotesApi.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -11,6 +12,8 @@ builder.Services.AddDbContext<QuotesDbContext>(options =>
 builder.Services.AddScoped<IQuoteRepository, QuoteRepository>();
 
 var app = builder.Build();
+
+app.UseMiddleware<ExceptionMiddleware>();
 
 app.MapGet("/api/quotes", async (
     int page,
@@ -34,12 +37,15 @@ app.MapGet("/api/quotes/{id}", async (
     IQuoteRepository repo,
     CancellationToken cancellationToken) =>
 {
-    var quote = await repo.GetByIdAsync(id, cancellationToken);
+    var quote = await repo.GetByIdAsync(
+        id,
+        cancellationToken);
 
     return quote is null
         ? Results.NotFound()
         : Results.Ok(quote);
 });
+
 app.MapPost("/api/quotes", async (
     Quote quote,
     IQuoteRepository repo,
@@ -54,7 +60,9 @@ app.MapPost("/api/quotes", async (
         });
     }
 
-    var created = await repo.AddAsync(quote, cancellationToken);
+    var created = await repo.AddAsync(
+        quote,
+        cancellationToken);
 
     return Results.Created(
         $"/api/quotes/{created.Id}",
@@ -66,7 +74,9 @@ app.MapDelete("/api/quotes/{id}", async (
     IQuoteRepository repo,
     CancellationToken cancellationToken) =>
 {
-    var deleted = await repo.DeleteAsync(id, cancellationToken);
+    var deleted = await repo.DeleteAsync(
+        id,
+        cancellationToken);
 
     return deleted
         ? Results.NoContent()
