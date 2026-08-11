@@ -12,6 +12,7 @@ public class QuotesDbContext : DbContext
     public DbSet<Quote> Quotes => Set<Quote>();
     public DbSet<Collection> Collections => Set<Collection>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -59,5 +60,14 @@ public class QuotesDbContext : DbContext
                     .IsRequired();
             });
         });
+        modelBuilder.Entity<RefreshToken>()
+    .HasOne(x => x.User)
+    .WithMany()
+    .HasForeignKey(x => x.UserId)
+    .OnDelete(DeleteBehavior.Cascade);
+
+    modelBuilder.Entity<RefreshToken>()
+            .HasIndex(x => x.Token)
+            .IsUnique();
     }
 }
