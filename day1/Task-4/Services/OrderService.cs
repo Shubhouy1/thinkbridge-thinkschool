@@ -12,6 +12,11 @@ public class OrderService : IOrderService
     private readonly ITaxStrategy _taxStrategy;
     private readonly IDiscountStrategy _discountStrategy;
 
+    public OrderService(IOrderRepository repository, ILogger<OrderService> logger)
+        : this(repository, logger, new DefaultShippingStrategy(), new DefaultTaxStrategy(), new DefaultDiscountStrategy())
+    {
+    }
+
     public OrderService(IOrderRepository repository, ILogger<OrderService> logger, IShippingStrategy shippingStrategy, ITaxStrategy taxStrategy, IDiscountStrategy discountStrategy)
     {
         _repository = repository;
