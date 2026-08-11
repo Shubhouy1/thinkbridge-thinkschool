@@ -1,0 +1,19 @@
+# .NET build files
+bin/
+obj/
+
+# User-specific files
+.vs/
+*.user
+*.suo
+
+# Visual Studio Code
+.vscode/
+
+# Logs
+*.log
+
+# Local database
+*.db
+*.db-shm
+*.db-wal
