@@ -4,7 +4,6 @@ using QuotesApi.Models;
 using QuotesApi.Repositories;
 using QuotesApi.Middleware;
 using QuotesApi.Infrastructure;
-using QuotesApi.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,7 +13,6 @@ builder.Services.AddDbContext<QuotesDbContext>(options =>
 builder.Services.AddScoped<IQuoteRepository, QuoteRepository>();
 builder.Services.AddScoped<ICollectionRepository, CollectionRepository>();
 builder.Services.AddSingleton<IClock, SystemClock>();
-builder.Services.AddTransient<IQuoteFormatter, QuoteFormatter>();
 
 var app = builder.Build();
 
@@ -81,24 +79,22 @@ app.MapPost("/api/collections", async (
 
 // Create quote
 app.MapPost("/api/quotes", async (
-    Quote quote,
+    QuoteCreateRequest request,
     IQuoteRepository repo,
-    IQuoteFormatter formatter,
     CancellationToken cancellationToken) =>
 {
-    if (string.IsNullOrWhiteSpace(quote.Author) ||
-        string.IsNullOrWhiteSpace(quote.Text))
+    var (quote, error) = Quote.Create(request.Author, request.Text);
+
+    if (error is not null)
     {
-        return Results.BadRequest(new
+        return Results.ValidationProblem(new Dictionary<string, string[]>
         {
-            error = "Author and text are required."
+            [error.PropertyName] = [error.Message]
         });
     }
 
-    quote.Text = formatter.Format(quote.Text);
-
     var created = await repo.AddAsync(
-        quote,
+        quote!,
         cancellationToken);
 
     return Results.Created(

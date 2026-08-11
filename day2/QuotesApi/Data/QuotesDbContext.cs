@@ -15,6 +15,24 @@ public class QuotesDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<Quote>(entity =>
+        {
+            entity.HasKey(q => q.Id);
+
+            entity.Property(q => q.Author)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            entity.Property(q => q.Text)
+                .IsRequired()
+                .HasMaxLength(1000);
+
+            entity.Property(q => q.IsDeleted)
+                .IsRequired();
+
+            entity.HasQueryFilter(q => !q.IsDeleted);
+        });
+
         modelBuilder.Entity<Collection>(entity =>
         {
             entity.HasKey(c => c.Id);

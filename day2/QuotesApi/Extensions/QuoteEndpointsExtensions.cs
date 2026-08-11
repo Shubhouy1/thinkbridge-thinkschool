@@ -44,25 +44,23 @@ public static class QuoteEndpointsExtensions
         });
 
         group.MapPost("/", async (
-            Quote quote,
+            QuoteCreateRequest request,
             IQuoteRepository repo,
             ILogger<Program> logger,
             CancellationToken ct) =>
         {
             var errors = new Dictionary<string, string[]>();
+            var (quote, error) = Quote.Create(request.Author, request.Text);
 
-            if (string.IsNullOrWhiteSpace(quote.Author))
-                errors["author"] = ["Author is required."];
-
-            if (string.IsNullOrWhiteSpace(quote.Text))
-                errors["text"] = ["Text is required."];
-
-            if (errors.Count > 0)
+            if (error is not null)
+            {
+                errors[error.PropertyName] = [error.Message];
                 return Results.ValidationProblem(errors);
+            }
 
             logger.LogInformation(
                 "Creating quote by {Author}",
-                quote.Author);
+                quote!.Author);
 
             var created = await repo.AddAsync(quote, ct);
 
