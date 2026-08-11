@@ -32,14 +32,16 @@ public class Collection
 
         _items.Add(new CollectionItem(quoteId, addedAt.UtcDateTime));
     }
-    public void RemoveItem(int quoteId)
-    {
-        var item = _items.FirstOrDefault(x => x.QuoteId == quoteId);
+     public void RemoveItem(int quoteId)
+{
+    var item = _items.FirstOrDefault(x => x.QuoteId == quoteId);
 
-        if (item is not null)
-            _items.Remove(item);
-    }
+    if (item is null)
+        throw new InvalidOperationException(
+            "Quote does not exist in the collection.");
 
+    _items.Remove(item);
+}
     private void SetName(string name)
     {
         if (string.IsNullOrWhiteSpace(name) ||
