@@ -20,7 +20,6 @@ builder.Services.AddScoped<IQuoteRepository, QuoteRepository>();
 builder.Services.AddScoped<ICollectionRepository, CollectionRepository>();
 builder.Services.AddSingleton<IClock, SystemClock>();
 
-// JWT configuration
 var jwtKey = builder.Configuration["Jwt:Key"]
     ?? throw new InvalidOperationException("JWT key is not configured.");
 
@@ -37,6 +36,7 @@ builder.Services
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuerSigningKey = true,
+
             IssuerSigningKey = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(jwtKey)),
 
@@ -59,7 +59,6 @@ app.UseMiddleware<ExceptionMiddleware>();
 
 app.UseAuthentication();
 app.UseAuthorization();
-
 app.MapGet("/api/quotes", async (
     int page,
     int size,
@@ -91,7 +90,7 @@ app.MapGet("/api/quotes/{id}", async (
         : Results.Ok(quote);
 });
 
-// DELETE quote - protected
+
 app.MapDelete("/api/quotes/{id}", async (
     int id,
     IQuoteRepository repo,
@@ -107,18 +106,21 @@ app.MapDelete("/api/quotes/{id}", async (
 })
 .RequireAuthorization();
 
-// Create collection
+
 app.MapPost("/api/collections", async (
     Collection collection,
     ICollectionRepository repo,
     CancellationToken cancellationToken) =>
 {
-    await repo.Add(collection, cancellationToken);
+    await repo.Add(
+        collection,
+        cancellationToken);
 
     return Results.Created(
         $"/api/collections/{collection.Id}",
         collection);
 });
+
 
 app.MapPost("/api/auth/login", async (
     LoginRequest request,
@@ -138,7 +140,6 @@ app.MapPost("/api/auth/login", async (
     {
         return Results.Unauthorized();
     }
-
     var jwtKey = configuration["Jwt:Key"]
         ?? throw new InvalidOperationException(
             "JWT key is not configured.");
@@ -152,8 +153,8 @@ app.MapPost("/api/auth/login", async (
             "JWT audience is not configured.");
 
     var expiresInMinutes =
-        configuration.GetValue<int>("Jwt:ExpiresInMinutes");
-
+        configuration.GetValue<int>(
+            "Jwt:ExpiresInMinutes");
     var expiresAt = DateTime.UtcNow.AddMinutes(
         expiresInMinutes);
 
@@ -185,6 +186,19 @@ app.MapPost("/api/auth/login", async (
 
     var refreshToken = Convert.ToBase64String(
         RandomNumberGenerator.GetBytes(32));
+    var refreshTokenHash = Convert.ToBase64String(
+        SHA256.HashData(
+            Encoding.UTF8.GetBytes(refreshToken)));
+
+    var refreshTokenEntity = new RefreshToken
+    {
+        Token = refreshTokenHash,
+        UserId = user.Id,
+        ExpiresAt = DateTimeOffset.UtcNow.AddDays(7)
+    };
+    db.RefreshTokens.Add(refreshTokenEntity);
+    await db.SaveChangesAsync(
+        cancellationToken);
 
     return Results.Ok(new
     {
@@ -196,7 +210,142 @@ app.MapPost("/api/auth/login", async (
     });
 });
 
-// Create quote - protected
+app.MapPost("/api/auth/logout", async (
+    RefreshRequest request,
+    QuotesDbContext db,
+    CancellationToken cancellationToken) =>
+{
+    var tokenHash = Convert.ToBase64String(
+        SHA256.HashData(
+            Encoding.UTF8.GetBytes(request.RefreshToken)));
+
+    var refreshToken = await db.RefreshTokens
+        .FirstOrDefaultAsync(
+            x => x.Token == tokenHash,
+            cancellationToken);
+
+    if (refreshToken is null)
+        return Results.NoContent();
+
+    if (refreshToken.RevokedAt is null)
+    {
+        refreshToken.RevokedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    return Results.NoContent();
+});
+
+app.MapPost("/api/auth/refresh", async (
+    RefreshRequest request,
+    QuotesDbContext db,
+    IConfiguration configuration,
+    ILogger<Program> logger,
+    CancellationToken cancellationToken) =>
+{
+    var tokenHash = Convert.ToBase64String(
+        SHA256.HashData(
+            Encoding.UTF8.GetBytes(request.RefreshToken)));
+
+    var refreshToken = await db.RefreshTokens
+        .Include(x => x.User)
+        .FirstOrDefaultAsync(
+            x => x.Token == tokenHash,
+            cancellationToken);
+
+    if (refreshToken is null)
+        return Results.Unauthorized();
+
+    if (refreshToken.RevokedAt is not null)
+    {
+        if (refreshToken.ReplacedByToken is not null)
+        {
+            logger.LogWarning(
+            "Refresh token reuse detected for UserId {UserId}.",
+             refreshToken.UserId);
+            var activeTokens = await db.RefreshTokens
+                .Where(x =>
+                    x.UserId == refreshToken.UserId &&
+                    x.RevokedAt == null)
+                .ToListAsync(cancellationToken);
+
+            var now = DateTimeOffset.UtcNow;
+
+            foreach (var token in activeTokens)
+                token.RevokedAt = now;
+
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        return Results.Unauthorized();
+    }
+
+    if (refreshToken.ExpiresAt <= DateTimeOffset.UtcNow)
+        return Results.Unauthorized();
+
+    if (refreshToken.User is null)
+        return Results.Unauthorized();
+
+    var jwtKey = configuration["Jwt:Key"]
+        ?? throw new InvalidOperationException("JWT key is not configured.");
+
+    var jwtIssuer = configuration["Jwt:Issuer"]
+        ?? throw new InvalidOperationException("JWT issuer is not configured.");
+
+    var jwtAudience = configuration["Jwt:Audience"]
+        ?? throw new InvalidOperationException("JWT audience is not configured.");
+
+    var expiresInMinutes = configuration.GetValue<int>("Jwt:ExpiresInMinutes");
+
+    var expiresAt = DateTime.UtcNow.AddMinutes(expiresInMinutes);
+
+    var claims = new[]
+    {
+        new Claim(ClaimTypes.NameIdentifier, refreshToken.User.Id.ToString()),
+        new Claim(ClaimTypes.Email, refreshToken.User.Email)
+    };
+
+    var credentials = new SigningCredentials(
+        new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+        SecurityAlgorithms.HmacSha256);
+
+    var jwt = new JwtSecurityToken(
+        issuer: jwtIssuer,
+        audience: jwtAudience,
+        claims: claims,
+        expires: expiresAt,
+        signingCredentials: credentials);
+
+    var accessToken = new JwtSecurityTokenHandler().WriteToken(jwt);
+
+    var newRefreshToken = Convert.ToBase64String(
+        RandomNumberGenerator.GetBytes(32));
+
+    var newRefreshTokenHash = Convert.ToBase64String(
+        SHA256.HashData(
+            Encoding.UTF8.GetBytes(newRefreshToken)));
+
+    var replacement = new RefreshToken
+    {
+        Token = newRefreshTokenHash,
+        UserId = refreshToken.UserId,
+        ExpiresAt = DateTimeOffset.UtcNow.AddDays(7)
+    };
+
+    db.RefreshTokens.Add(replacement);
+
+    refreshToken.RevokedAt = DateTimeOffset.UtcNow;
+    refreshToken.ReplacedByToken = newRefreshTokenHash;
+
+    await db.SaveChangesAsync(cancellationToken);
+
+    return Results.Ok(new
+    {
+        access_token = accessToken,
+        refresh_token = newRefreshToken,
+        expires_in = (int)TimeSpan.FromMinutes(expiresInMinutes).TotalSeconds
+    });
+});
 app.MapPost("/api/quotes", async (
     QuoteCreateRequest request,
     IQuoteRepository repo,
@@ -214,7 +363,6 @@ app.MapPost("/api/quotes", async (
                 [error.PropertyName] = [error.Message]
             });
     }
-
     var created = await repo.AddAsync(
         quote!,
         cancellationToken);
@@ -225,46 +373,41 @@ app.MapPost("/api/quotes", async (
 })
 .RequireAuthorization();
 
-// Remove quote from collection
-app.MapDelete("/api/collections/{id}/items/{quoteId}", async (
-    int id,
-    int quoteId,
-    ICollectionRepository repo,
-    CancellationToken cancellationToken) =>
-{
-    var collection = await repo.GetById(
-        id,
-        cancellationToken);
-
-    if (collection is null)
-        return Results.NotFound();
-
-    collection.RemoveItem(quoteId);
-
-    await repo.Update(
-        collection,
-        cancellationToken);
-
-    return Results.NoContent();
-});
+app.MapDelete(
+    "/api/collections/{id}/items/{quoteId}",
+    async (
+        int id,
+        int quoteId,
+        ICollectionRepository repo,
+        CancellationToken cancellationToken) =>
+    {
+        var collection = await repo.GetById(
+            id,
+            cancellationToken);
+        if (collection is null)
+            return Results.NotFound();
+        collection.RemoveItem(quoteId);
+        await repo.Update(
+            collection,
+            cancellationToken);
+        return Results.NoContent();
+    });
 
 if (app.Environment.IsDevelopment())
 {
     using var scope = app.Services.CreateScope();
-
     var db = scope.ServiceProvider
         .GetRequiredService<QuotesDbContext>();
-
     if (!await db.Users.AnyAsync())
     {
         db.Users.Add(new User
         {
             Email = "test@example.com",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword("Password123!")
+            PasswordHash =
+                BCrypt.Net.BCrypt.HashPassword(
+                    "Password123!")
         });
-
         await db.SaveChangesAsync();
     }
 }
-
 app.Run();
