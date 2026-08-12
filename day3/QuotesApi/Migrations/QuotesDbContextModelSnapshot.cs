@@ -33,7 +33,7 @@ namespace QuotesApi.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Collections");
+                    b.ToTable("Collections", (string)null);
                 });
 
             modelBuilder.Entity("QuotesApi.Models.Quote", b =>
@@ -60,7 +60,7 @@ namespace QuotesApi.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Quotes");
+                    b.ToTable("Quotes", (string)null);
                 });
 
             modelBuilder.Entity("QuotesApi.Models.RefreshToken", b =>
@@ -92,7 +92,7 @@ namespace QuotesApi.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("RefreshTokens");
+                    b.ToTable("RefreshTokens", (string)null);
                 });
 
             modelBuilder.Entity("QuotesApi.Models.User", b =>
@@ -111,7 +111,7 @@ namespace QuotesApi.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Users");
+                    b.ToTable("Users", (string)null);
                 });
 
             modelBuilder.Entity("QuotesApi.Models.Collection", b =>
@@ -129,7 +129,7 @@ namespace QuotesApi.Migrations
 
                             b1.HasKey("CollectionId", "QuoteId");
 
-                            b1.ToTable("CollectionItem");
+                            b1.ToTable("CollectionItem", (string)null);
 
                             b1.WithOwner()
                                 .HasForeignKey("CollectionId");

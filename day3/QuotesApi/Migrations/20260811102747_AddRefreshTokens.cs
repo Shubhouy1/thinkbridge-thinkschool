@@ -17,7 +17,7 @@ namespace QuotesApi.Migrations
                 {
                     Id = table.Column<int>(type: "INTEGER", nullable: false)
                         .Annotation("Sqlite:Autoincrement", true),
-                    Token = table.Column<string>(type: "TEXT", nullable: false),
+                    Token = table.Column<string>(  type: "nvarchar(450)", maxLength: 450, nullable: false),
                     UserId = table.Column<int>(type: "INTEGER", nullable: false),
                     ExpiresAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
                     RevokedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),

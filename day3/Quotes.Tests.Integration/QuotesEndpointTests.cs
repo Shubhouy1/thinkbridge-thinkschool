@@ -1,16 +1,24 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using FluentAssertions;
 using System.Text.Json.Serialization;
+using FluentAssertions;
 
 namespace Quotes.Tests.Integration;
 
-public class QuotesEndpointTests
+public class QuotesEndpointTests : IClassFixture<MsSqlContainerFixture>
 {
-    private static QuotesApiFactory CreateFactory()
+    private readonly MsSqlContainerFixture _fixture;
+
+    public QuotesEndpointTests(MsSqlContainerFixture fixture)
     {
-        return new QuotesApiFactory();
+        _fixture = fixture;
+    }
+
+    private QuotesApiFactory CreateFactory()
+    {
+        return new QuotesApiFactory(
+            _fixture.Container.GetConnectionString());
     }
 
     private static async Task<string> LoginAsync(
@@ -36,11 +44,12 @@ public class QuotesEndpointTests
         return result.AccessToken;
     }
 
-private sealed class TokenResponse
-{
-    [JsonPropertyName("access_token")]
-    public string AccessToken { get; set; } = string.Empty;
-}
+    private sealed class TokenResponse
+    {
+        [JsonPropertyName("access_token")]
+        public string AccessToken { get; set; } = string.Empty;
+    }
+
     private sealed class QuoteResponse
     {
         public int Id { get; set; }
@@ -157,24 +166,24 @@ private sealed class TokenResponse
     }
 
     [Fact]
-public async Task DeleteQuote_NonExistingQuote_ReturnsForbidden()
-{
-    using var factory = CreateFactory();
-    using var client = factory.CreateClient();
+    public async Task DeleteQuote_NonExistingQuote_ReturnsForbidden()
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient();
 
-    var token = await LoginAsync(
-        client,
-        "test@example.com");
+        var token = await LoginAsync(
+            client,
+            "test@example.com");
 
-    client.DefaultRequestHeaders.Authorization =
-        new AuthenticationHeaderValue("Bearer", token);
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", token);
 
-    var response = await client.DeleteAsync(
-        "/api/quotes/999999");
+        var response = await client.DeleteAsync(
+            "/api/quotes/999999");
 
-    response.StatusCode
-        .Should().Be(HttpStatusCode.Forbidden);
-}
+        response.StatusCode
+            .Should().Be(HttpStatusCode.Forbidden);
+    }
 
     [Fact]
     public async Task DeleteQuote_OwnQuote_ReturnsNoContent()
@@ -243,7 +252,7 @@ public async Task DeleteQuote_NonExistingQuote_ReturnsForbidden()
 
         created.Should().NotBeNull();
 
-        // User 2 uses a completely separate HttpClient
+        // User 2 uses a separate HttpClient
         using var client2 = factory.CreateClient();
 
         var token2 = await LoginAsync(
