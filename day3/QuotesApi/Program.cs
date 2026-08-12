@@ -252,6 +252,7 @@ app.MapPost("/api/auth/refresh", async (
     QuotesDbContext db,
     IConfiguration configuration,
     ILogger<Program> logger,
+    IClock clock,
     CancellationToken cancellationToken) =>
 {
     var tokenHash = Convert.ToBase64String(
@@ -280,7 +281,7 @@ app.MapPost("/api/auth/refresh", async (
                     x.RevokedAt == null)
                 .ToListAsync(cancellationToken);
 
-            var now = DateTimeOffset.UtcNow;
+            var now = clock.UtcNow;
 
             foreach (var token in activeTokens)
                 token.RevokedAt = now;
@@ -291,7 +292,7 @@ app.MapPost("/api/auth/refresh", async (
         return Results.Unauthorized();
     }
 
-    if (refreshToken.ExpiresAt <= DateTimeOffset.UtcNow)
+    if (refreshToken.ExpiresAt <= clock.UtcNow)
         return Results.Unauthorized();
 
     if (refreshToken.User is null)
@@ -307,7 +308,7 @@ app.MapPost("/api/auth/refresh", async (
         ?? throw new InvalidOperationException("JWT audience is not configured.");
 
     var expiresInMinutes = configuration.GetValue<int>("Jwt:ExpiresInMinutes");
-    var expiresAt = DateTime.UtcNow.AddMinutes(expiresInMinutes);
+    var expiresAt = clock.UtcNow.UtcDateTime.AddMinutes(expiresInMinutes);
 
     var claims = new[]
     {
@@ -342,11 +343,11 @@ app.MapPost("/api/auth/refresh", async (
     {
         Token = newRefreshTokenHash,
         UserId = refreshToken.UserId,
-        ExpiresAt = DateTimeOffset.UtcNow.AddDays(7)
+        ExpiresAt = clock.UtcNow.AddDays(7)
     };
 
     db.RefreshTokens.Add(replacement);
-    refreshToken.RevokedAt = DateTimeOffset.UtcNow;
+    refreshToken.RevokedAt = clock.UtcNow;
     refreshToken.ReplacedByToken = newRefreshTokenHash;
 
     await db.SaveChangesAsync(cancellationToken);
