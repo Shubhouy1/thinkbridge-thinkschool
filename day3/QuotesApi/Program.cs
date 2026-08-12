@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using QuotesApi.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using QuotesApi.Data;
@@ -75,7 +77,8 @@ builder.Services
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(jwtKey)),
             ValidateIssuer = true,
             ValidIssuer = jwtIssuer,
             ValidateAudience = true,
@@ -98,7 +101,16 @@ builder.Services
         };
     });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("can-edit-quotes", policy =>
+        policy.RequireClaim("scope", "quotes.write"));
+
+    options.AddPolicy("can-delete-own-quote", policy =>
+        policy.Requirements.Add(new OwnsQuoteRequirement()));
+});
+
+builder.Services.AddScoped<IAuthorizationHandler, OwnsQuoteHandler>();
 
 var app = builder.Build();
 
@@ -134,7 +146,7 @@ app.MapDelete("/api/quotes/{id}", async (
 {
     var deleted = await repo.DeleteAsync(id, cancellationToken);
     return deleted ? Results.NoContent() : Results.NotFound();
-}).RequireAuthorization();
+}).RequireAuthorization("can-delete-own-quote");
 
 app.MapPost("/api/collections", async (
     Collection collection,
@@ -173,7 +185,8 @@ app.MapPost("/api/auth/login", async (
     var claims = new[]
     {
         new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-        new Claim(ClaimTypes.Email, user.Email)
+        new Claim(ClaimTypes.Email, user.Email),
+        new Claim("scope", "quotes.write")
     };
 
     var credentials = new SigningCredentials(
@@ -246,7 +259,9 @@ app.MapPost("/api/auth/refresh", async (
 
     var refreshToken = await db.RefreshTokens
         .Include(x => x.User)
-        .FirstOrDefaultAsync(x => x.Token == tokenHash, cancellationToken);
+        .FirstOrDefaultAsync(
+            x => x.Token == tokenHash,
+            cancellationToken);
 
     if (refreshToken is null)
         return Results.Unauthorized();
@@ -260,7 +275,9 @@ app.MapPost("/api/auth/refresh", async (
                 refreshToken.UserId);
 
             var activeTokens = await db.RefreshTokens
-                .Where(x => x.UserId == refreshToken.UserId && x.RevokedAt == null)
+                .Where(x =>
+                    x.UserId == refreshToken.UserId &&
+                    x.RevokedAt == null)
                 .ToListAsync(cancellationToken);
 
             var now = DateTimeOffset.UtcNow;
@@ -294,8 +311,15 @@ app.MapPost("/api/auth/refresh", async (
 
     var claims = new[]
     {
-        new Claim(ClaimTypes.NameIdentifier, refreshToken.User.Id.ToString()),
-        new Claim(ClaimTypes.Email, refreshToken.User.Email)
+        new Claim(
+            ClaimTypes.NameIdentifier,
+            refreshToken.User.Id.ToString()),
+        new Claim(
+            ClaimTypes.Email,
+            refreshToken.User.Email),
+        new Claim(
+            "scope",
+            "quotes.write")
     };
 
     var credentials = new SigningCredentials(
@@ -337,10 +361,19 @@ app.MapPost("/api/auth/refresh", async (
 
 app.MapPost("/api/quotes", async (
     QuoteCreateRequest request,
+    HttpContext httpContext,
     IQuoteRepository repo,
     CancellationToken cancellationToken) =>
 {
-    var (quote, error) = Quote.Create(request.Author, request.Text);
+    var userIdClaim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier);
+
+    if (userIdClaim is null || !int.TryParse(userIdClaim.Value, out var userId))
+        return Results.Unauthorized();
+
+    var (quote, error) = Quote.Create(
+        request.Author,
+        request.Text,
+        userId);
 
     if (error is not null)
     {
@@ -353,7 +386,7 @@ app.MapPost("/api/quotes", async (
 
     var created = await repo.AddAsync(quote!, cancellationToken);
     return Results.Created($"/api/quotes/{created.Id}", created);
-}).RequireAuthorization();
+}).RequireAuthorization("can-edit-quotes");
 
 app.MapDelete(
     "/api/collections/{id}/items/{quoteId}",
@@ -373,22 +406,29 @@ app.MapDelete(
 
         return Results.NoContent();
     });
-
 if (app.Environment.IsDevelopment())
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<QuotesDbContext>();
 
-    if (!await db.Users.AnyAsync())
+    if (!await db.Users.AnyAsync(u => u.Email == "test@example.com"))
     {
         db.Users.Add(new User
         {
             Email = "test@example.com",
             PasswordHash = BCrypt.Net.BCrypt.HashPassword("Password123!")
         });
-
-        await db.SaveChangesAsync();
     }
-}
 
+    if (!await db.Users.AnyAsync(u => u.Email == "test2@example.com"))
+    {
+        db.Users.Add(new User
+        {
+            Email = "test2@example.com",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("Password123!")
+        });
+    }
+
+    await db.SaveChangesAsync();
+}
 app.Run();

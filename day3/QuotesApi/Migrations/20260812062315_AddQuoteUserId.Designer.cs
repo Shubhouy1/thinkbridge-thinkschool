@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using QuotesApi.Data;
 
@@ -10,9 +11,11 @@ using QuotesApi.Data;
 namespace QuotesApi.Migrations
 {
     [DbContext(typeof(QuotesDbContext))]
-    partial class QuotesDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260812062315_AddQuoteUserId")]
+    partial class AddQuoteUserId
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.10");
@@ -54,9 +57,6 @@ namespace QuotesApi.Migrations
                         .IsRequired()
                         .HasMaxLength(1000)
                         .HasColumnType("TEXT");
-
-                    b.Property<int>("UserId")
-                        .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
 

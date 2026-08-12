@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 using QuotesApi.Models;
 using QuotesApi.Repositories;
 
@@ -45,12 +47,24 @@ public static class QuoteEndpointsExtensions
 
         group.MapPost("/", async (
             QuoteCreateRequest request,
+            HttpContext httpContext,
             IQuoteRepository repo,
             ILogger<Program> logger,
             CancellationToken ct) =>
         {
+            var userIdClaim = httpContext.User.FindFirst(
+                ClaimTypes.NameIdentifier);
+
+            if (userIdClaim is null ||
+                !int.TryParse(userIdClaim.Value, out var userId))
+                return Results.Unauthorized();
+
             var errors = new Dictionary<string, string[]>();
-            var (quote, error) = Quote.Create(request.Author, request.Text);
+
+            var (quote, error) = Quote.Create(
+                request.Author,
+                request.Text,
+                userId);
 
             if (error is not null)
             {
@@ -67,7 +81,8 @@ public static class QuoteEndpointsExtensions
             return Results.Created(
                 $"/api/quotes/{created.Id}",
                 created);
-        });
+        })
+        .RequireAuthorization("can-edit-quotes");
 
         group.MapDelete("/{id:int}", async (
             int id,
@@ -82,7 +97,8 @@ public static class QuoteEndpointsExtensions
             return deleted
                 ? Results.NoContent()
                 : Results.NotFound();
-        });
+        })
+        .RequireAuthorization("can-delete-own-quote");
 
         return app;
     }
