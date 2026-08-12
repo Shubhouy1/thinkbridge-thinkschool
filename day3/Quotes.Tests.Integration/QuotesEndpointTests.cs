@@ -3,6 +3,10 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using FluentAssertions;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
+using Microsoft.IdentityModel.Tokens;
 
 namespace Quotes.Tests.Integration;
 
@@ -48,12 +52,16 @@ public class QuotesEndpointTests : IClassFixture<MsSqlContainerFixture>
     {
         [JsonPropertyName("access_token")]
         public string AccessToken { get; set; } = string.Empty;
+
+        [JsonPropertyName("refresh_token")]
+        public string RefreshToken { get; set; } = string.Empty;
     }
 
     private sealed class QuoteResponse
     {
         public int Id { get; set; }
     }
+
 
     [Fact]
     public async Task GetQuotes_WithoutAuthentication_ReturnsOk()
@@ -117,6 +125,29 @@ public class QuotesEndpointTests : IClassFixture<MsSqlContainerFixture>
             new
             {
                 author = "Anonymous",
+                text = "Should not be created"
+            });
+
+        response.StatusCode
+            .Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task CreateQuote_ExpiredToken_ReturnsUnauthorized()
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+
+        var token = CreateExpiredToken();
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", token);
+
+        var response = await client.PostAsJsonAsync(
+            "/api/quotes",
+            new
+            {
+                author = "Expired Token",
                 text = "Should not be created"
             });
 
@@ -252,7 +283,7 @@ public class QuotesEndpointTests : IClassFixture<MsSqlContainerFixture>
 
         created.Should().NotBeNull();
 
-        // User 2 uses a separate HttpClient
+        // User 2 attempts to delete User 1's quote
         using var client2 = factory.CreateClient();
 
         var token2 = await LoginAsync(
@@ -268,6 +299,7 @@ public class QuotesEndpointTests : IClassFixture<MsSqlContainerFixture>
         deleteResponse.StatusCode
             .Should().Be(HttpStatusCode.Forbidden);
     }
+
 
     [Fact]
     public async Task Login_ValidCredentials_ReturnsOk()
@@ -291,6 +323,7 @@ public class QuotesEndpointTests : IClassFixture<MsSqlContainerFixture>
 
         result.Should().NotBeNull();
         result!.AccessToken.Should().NotBeNullOrWhiteSpace();
+        result.RefreshToken.Should().NotBeNullOrWhiteSpace();
     }
 
     [Fact]
@@ -326,5 +359,87 @@ public class QuotesEndpointTests : IClassFixture<MsSqlContainerFixture>
 
         response.StatusCode
             .Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Refresh_ReusedRefreshToken_ReturnsUnauthorized()
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+
+        // Login and obtain the original refresh token
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                email = "test@example.com",
+                password = "Password123!"
+            });
+
+        loginResponse.StatusCode
+            .Should().Be(HttpStatusCode.OK);
+
+        var tokens = await loginResponse.Content
+            .ReadFromJsonAsync<TokenResponse>();
+
+        tokens.Should().NotBeNull();
+        tokens!.RefreshToken
+            .Should().NotBeNullOrWhiteSpace();
+
+        var oldRefreshToken = tokens.RefreshToken;
+
+        // First use should rotate the refresh token
+        var firstRefreshResponse =
+            await client.PostAsJsonAsync(
+                "/api/auth/refresh",
+                new
+                {
+                    refreshToken = oldRefreshToken
+                });
+
+        firstRefreshResponse.StatusCode
+            .Should().Be(HttpStatusCode.OK);
+
+        // Reuse the old refresh token
+        var reusedResponse =
+            await client.PostAsJsonAsync(
+                "/api/auth/refresh",
+                new
+                {
+                    refreshToken = oldRefreshToken
+                });
+
+        reusedResponse.StatusCode
+            .Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    private static string CreateExpiredToken()
+    {
+        const string key =
+            "test-secret-key-for-integration-tests-12345678901234567890";
+
+        var credentials = new SigningCredentials(
+            new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(key)),
+            SecurityAlgorithms.HmacSha256);
+
+        var token = new JwtSecurityToken(
+            issuer: "QuotesApi",
+            audience: "QuotesApiClient",
+            claims:
+            [
+                new Claim(
+                    ClaimTypes.NameIdentifier,
+                    "1"),
+
+                new Claim(
+                    ClaimTypes.Email,
+                    "test@example.com")
+            ],
+            expires: DateTime.UtcNow.AddMinutes(-10),
+            signingCredentials: credentials);
+
+        return new JwtSecurityTokenHandler()
+            .WriteToken(token);
     }
 }
