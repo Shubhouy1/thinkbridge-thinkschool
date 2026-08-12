@@ -21,13 +21,10 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Restore
-        working-directory: ./day3
-        run: dotnet restore
+        run: dotnet restore day3/Quotes.Tests.Integration/Quotes.Tests.Integration.csproj
 
       - name: Build
-        working-directory: ./day3
-        run: dotnet build --no-restore
+        run: dotnet build day3/Quotes.Tests.Integration/Quotes.Tests.Integration.csproj --no-restore
 
       - name: Run integration tests
-        working-directory: ./day3
-        run: dotnet test Quotes.Tests.Integration --no-build
+        run: dotnet test day3/Quotes.Tests.Integration/Quotes.Tests.Integration.csproj --no-build
