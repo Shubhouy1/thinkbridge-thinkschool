@@ -9,6 +9,7 @@ public class QuotesDbContext : DbContext
         : base(options)
     {
     }
+
     public DbSet<Quote> Quotes => Set<Quote>();
     public DbSet<Collection> Collections => Set<Collection>();
     public DbSet<User> Users => Set<User>();
@@ -60,14 +61,40 @@ public class QuotesDbContext : DbContext
                     .IsRequired();
             });
         });
-        modelBuilder.Entity<RefreshToken>()
-    .HasOne(x => x.User)
-    .WithMany()
-    .HasForeignKey(x => x.UserId)
-    .OnDelete(DeleteBehavior.Cascade);
 
-    modelBuilder.Entity<RefreshToken>()
-            .HasIndex(x => x.Token)
-            .IsUnique();
+        // User configuration
+        modelBuilder.Entity<User>(entity =>
+        {
+            entity.HasKey(u => u.Id);
+
+            entity.Property(u => u.Email)
+                .IsRequired()
+                .HasMaxLength(320);
+
+            entity.Property(u => u.PasswordHash)
+                .IsRequired()
+                .HasMaxLength(100);
+        });
+
+        // RefreshToken -> User relationship
+        modelBuilder.Entity<RefreshToken>()
+            .HasOne(x => x.User)
+            .WithMany()
+            .HasForeignKey(x => x.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // RefreshToken configuration
+        modelBuilder.Entity<RefreshToken>(entity =>
+        {
+            entity.Property(x => x.Token)
+                .HasMaxLength(450)
+                .IsRequired();
+
+            entity.Property(x => x.ReplacedByToken)
+                .HasMaxLength(450);
+
+            entity.HasIndex(x => x.Token)
+                .IsUnique();
+        });
     }
 }

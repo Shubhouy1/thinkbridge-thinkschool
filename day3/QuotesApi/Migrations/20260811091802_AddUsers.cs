@@ -16,8 +16,9 @@ namespace QuotesApi.Migrations
                 {
                     Id = table.Column<int>(type: "INTEGER", nullable: false)
                         .Annotation("Sqlite:Autoincrement", true),
-                    Email = table.Column<string>(type: "TEXT", nullable: false),
-                    PasswordHash = table.Column<string>(type: "TEXT", nullable: false)
+                    Email = table.Column<string>( type: "nvarchar(320)",maxLength: 320,nullable: false),
+                    PasswordHash = table.Column<string>( type: "nvarchar(100)", maxLength: 100, nullable: false),
+                   
                 },
                 constraints: table =>
                 {

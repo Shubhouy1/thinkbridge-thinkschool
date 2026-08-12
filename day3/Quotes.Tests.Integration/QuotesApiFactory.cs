@@ -1,8 +1,9 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Data.Sqlite;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using QuotesApi.Data;
 using QuotesApi.Infrastructure;
 using QuotesApi.Models;
@@ -11,13 +12,24 @@ namespace Quotes.Tests.Integration;
 
 public class QuotesApiFactory : WebApplicationFactory<Program>
 {
-    private SqliteConnection? _connection;
+    private readonly string _connectionString;
+
+    public QuotesApiFactory(string serverConnectionString)
+    {
+        var builder = new SqlConnectionStringBuilder(
+            serverConnectionString)
+        {
+            InitialCatalog = $"QuotesTest_{Guid.NewGuid():N}"
+        };
+
+        _connectionString = builder.ConnectionString;
+    }
 
     static QuotesApiFactory()
     {
         Environment.SetEnvironmentVariable(
             "Jwt__Key",
-            "test-secret-key-for-integration-tests-123456789");
+            "test-secret-key-for-integration-tests-12345678901234567890");
 
         Environment.SetEnvironmentVariable(
             "Jwt__Issuer",
@@ -29,7 +41,7 @@ public class QuotesApiFactory : WebApplicationFactory<Program>
 
         Environment.SetEnvironmentVariable(
             "Jwt__ExpiresInMinutes",
-            "15");
+            "60");
 
         Environment.SetEnvironmentVariable(
             "Entra__TenantId",
@@ -40,34 +52,19 @@ public class QuotesApiFactory : WebApplicationFactory<Program>
             "test-audience");
     }
 
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    protected override void ConfigureWebHost(
+        IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
 
         builder.ConfigureServices(services =>
         {
-            var dbContextDescriptor =
-                services.SingleOrDefault(
-                    d => d.ServiceType ==
-                         typeof(DbContextOptions<QuotesDbContext>));
+            // Remove the application's DbContext registration.
+            services.RemoveAll<DbContextOptions<QuotesDbContext>>();
+            services.RemoveAll<QuotesDbContext>();
 
-            if (dbContextDescriptor is not null)
-                services.Remove(dbContextDescriptor);
-
-            var clockDescriptor =
-                services.SingleOrDefault(
-                    d => d.ServiceType == typeof(IClock));
-
-            if (clockDescriptor is not null)
-                services.Remove(clockDescriptor);
-
-            _connection = new SqliteConnection("Data Source=:memory:");
-            _connection.Open();
-
-            services.AddSingleton(_connection);
-
-            services.AddDbContext<QuotesDbContext>(options =>
-                options.UseSqlite(_connection));
+            // Replace the application's clock.
+            services.RemoveAll<IClock>();
 
             services.AddSingleton<IClock>(
                 new FakeClock
@@ -82,50 +79,59 @@ public class QuotesApiFactory : WebApplicationFactory<Program>
                         TimeSpan.Zero)
                 });
 
-            var serviceProvider = services.BuildServiceProvider();
-
-            using var scope = serviceProvider.CreateScope();
-
-            var db = scope.ServiceProvider
-                .GetRequiredService<QuotesDbContext>();
-
-            db.Database.Migrate();
-
-            if (!db.Users.Any(u =>
-                    u.Email == "test@example.com"))
+            // Use the SQL Server Testcontainer database.
+            services.AddDbContext<QuotesDbContext>(options =>
             {
-                db.Users.Add(new User
-                {
-                    Email = "test@example.com",
-                    PasswordHash =
-                        BCrypt.Net.BCrypt.HashPassword(
-                            "Password123!")
-                });
+                options.UseSqlServer(_connectionString);
+            });
+
+            // Build a temporary provider so we can initialize
+            // the fresh SQL Server database.
+            using var serviceProvider =
+                services.BuildServiceProvider();
+
+            using var scope =
+                serviceProvider.CreateScope();
+
+            var db =
+                scope.ServiceProvider
+                    .GetRequiredService<QuotesDbContext>();
+
+            // IMPORTANT:
+            // Do NOT use SQLite migrations here.
+            // Create the SQL Server database directly from
+            // the current EF Core model.
+            db.Database.EnsureCreated();
+
+            // Seed test user 1.
+            if (!db.Users.Any(
+                    u => u.Email == "test@example.com"))
+            {
+                db.Users.Add(
+                    new User
+                    {
+                        Email = "test@example.com",
+                        PasswordHash =
+                            BCrypt.Net.BCrypt.HashPassword(
+                                "Password123!")
+                    });
             }
 
-            if (!db.Users.Any(u =>
-                    u.Email == "test2@example.com"))
+            // Seed test user 2.
+            if (!db.Users.Any(
+                    u => u.Email == "test2@example.com"))
             {
-                db.Users.Add(new User
-                {
-                    Email = "test2@example.com",
-                    PasswordHash =
-                        BCrypt.Net.BCrypt.HashPassword(
-                            "Password123!")
-                });
+                db.Users.Add(
+                    new User
+                    {
+                        Email = "test2@example.com",
+                        PasswordHash =
+                            BCrypt.Net.BCrypt.HashPassword(
+                                "Password123!")
+                    });
             }
 
             db.SaveChanges();
         });
-    }
-
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing)
-        {
-            _connection?.Dispose();
-        }
-
-        base.Dispose(disposing);
     }
 }
