@@ -17,8 +17,13 @@ using System.Security.Cryptography;
 using System.Diagnostics;
 using OpenTelemetry.Trace;
 using Azure.Monitor.OpenTelemetry.AspNetCore;
+using Microsoft.Extensions.Options;
+using QuotesApi.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddSingleton<JwtOptionsService>();
+builder.Services.Configure<JwtOptions>(
+    builder.Configuration.GetSection("Jwt"));
 var activitySource = new ActivitySource("QuotesApi");
 var openTelemetry = builder.Services.AddOpenTelemetry()
     .WithTracing(tracing => tracing
