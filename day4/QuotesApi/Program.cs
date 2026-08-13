@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Serilog;
+using Serilog.Context;
 using QuotesApi.Authorization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +16,14 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Host.UseSerilog((context, services, configuration) =>
+{
+    configuration
+        .ReadFrom.Configuration(context.Configuration)
+        .Enrich.FromLogContext()
+        .WriteTo.Console();
+});
 
 // Database
 // Production/development uses SQLite.
@@ -166,6 +176,14 @@ builder.Services.AddAuthorization(options =>
 builder.Services.AddScoped<IAuthorizationHandler, OwnsQuoteHandler>();
 
 var app = builder.Build();
+
+app.Use(async (ctx, next) =>
+{
+    using (LogContext.PushProperty("TraceId", ctx.TraceIdentifier))
+    {
+        await next();
+    }
+});
 
 app.UseMiddleware<ExceptionMiddleware>();
 
@@ -412,6 +430,9 @@ app.MapPost(
         IClock clock,
         CancellationToken cancellationToken) =>
     {
+        logger.LogInformation(
+            "Refresh request received");
+
         var tokenHash =
             Convert.ToBase64String(
                 SHA256.HashData(
@@ -424,6 +445,10 @@ app.MapPost(
                 .FirstOrDefaultAsync(
                     x => x.Token == tokenHash,
                     cancellationToken);
+
+        logger.LogInformation(
+            "Refresh token lookup completed. Found: {TokenFound}",
+            refreshToken is not null);
 
         if (refreshToken is null)
             return Results.Unauthorized();
@@ -458,6 +483,10 @@ app.MapPost(
 
             return Results.Unauthorized();
         }
+
+        logger.LogInformation(
+            "Checking refresh token expiration for {UserId}",
+            refreshToken.UserId);
 
         if (refreshToken.ExpiresAt <=
             clock.UtcNow)
@@ -554,6 +583,14 @@ app.MapPost(
 
         await db.SaveChangesAsync(
             cancellationToken);
+
+        logger.LogInformation(
+            "Refresh token rotated for user {UserId}",
+            refreshToken.UserId);
+
+        logger.LogInformation(
+            "Refresh request completed successfully for user {UserId}",
+            refreshToken.UserId);
 
         return Results.Ok(
             new
