@@ -14,8 +14,23 @@ using System.Text;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Diagnostics;
+using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var activitySource = new ActivitySource("QuotesApi");
+
+builder.Services.AddOpenTelemetry()
+    .WithTracing(tracing => tracing
+        .AddAspNetCoreInstrumentation()
+        .AddEntityFrameworkCoreInstrumentation()
+        .AddHttpClientInstrumentation()
+        .AddSource("QuotesApi")
+        .AddOtlpExporter(options =>
+        {
+            options.Endpoint = new Uri("http://localhost:4317");
+        }));
 
 builder.Host.UseSerilog((context, services, configuration) =>
 {
@@ -44,27 +59,21 @@ builder.Services.AddSingleton<IClock, SystemClock>();
 
 // JWT configuration
 var jwtKey = builder.Configuration["Jwt:Key"]
-    ?? throw new InvalidOperationException(
-        "JWT key is not configured.");
+    ?? throw new InvalidOperationException("JWT key is not configured.");
 
 var jwtIssuer = builder.Configuration["Jwt:Issuer"]
-    ?? throw new InvalidOperationException(
-        "JWT issuer is not configured.");
+    ?? throw new InvalidOperationException("JWT issuer is not configured.");
 
 var jwtAudience = builder.Configuration["Jwt:Audience"]
-    ?? throw new InvalidOperationException(
-        "JWT audience is not configured.");
+    ?? throw new InvalidOperationException("JWT audience is not configured.");
 
 var entraTenantId = builder.Configuration["Entra:TenantId"]
-    ?? throw new InvalidOperationException(
-        "Entra tenant ID is not configured.");
+    ?? throw new InvalidOperationException("Entra tenant ID is not configured.");
 
 var entraAudience = builder.Configuration["Entra:Audience"]
-    ?? throw new InvalidOperationException(
-        "Entra audience is not configured.");
+    ?? throw new InvalidOperationException("Entra audience is not configured.");
 
-var entraAuthority =
-    $"https://login.microsoftonline.com/{entraTenantId}/v2.0";
+var entraAuthority = $"https://login.microsoftonline.com/{entraTenantId}/v2.0";
 
 // Authentication
 builder.Services
@@ -90,8 +99,7 @@ builder.Services
                     return "SelfJwt";
                 }
 
-                var token =
-                    authorization["Bearer ".Length..].Trim();
+                var token = authorization["Bearer ".Length..].Trim();
 
                 try
                 {
@@ -119,19 +127,14 @@ builder.Services
                 new TokenValidationParameters
                 {
                     ValidateIssuerSigningKey = true,
-
                     IssuerSigningKey =
                         new SymmetricSecurityKey(
                             Encoding.UTF8.GetBytes(jwtKey)),
-
                     ValidateIssuer = true,
                     ValidIssuer = jwtIssuer,
-
                     ValidateAudience = true,
                     ValidAudience = jwtAudience,
-
                     ValidateLifetime = true,
-
                     ClockSkew = TimeSpan.Zero
                 };
         })
@@ -146,12 +149,9 @@ builder.Services
                 new TokenValidationParameters
                 {
                     ValidateIssuer = true,
-
                     ValidateAudience = true,
                     ValidAudience = entraAudience,
-
                     ValidateLifetime = true,
-
                     ClockSkew = TimeSpan.Zero
                 };
         });
@@ -179,17 +179,18 @@ var app = builder.Build();
 
 app.Use(async (ctx, next) =>
 {
-    using (LogContext.PushProperty("TraceId", ctx.TraceIdentifier))
+    var traceId = Activity.Current?.TraceId.ToString()
+                  ?? ctx.TraceIdentifier;
+
+    using (LogContext.PushProperty("TraceId", traceId))
     {
         await next();
     }
 });
 
 app.UseMiddleware<ExceptionMiddleware>();
-
 app.UseAuthentication();
 app.UseAuthorization();
-
 
 // GET ALL QUOTES
 app.MapGet(
@@ -211,7 +212,6 @@ app.MapGet(
         return Results.Ok(quotes);
     });
 
-
 // GET QUOTE BY ID
 app.MapGet(
     "/api/quotes/{id}",
@@ -228,7 +228,6 @@ app.MapGet(
             ? Results.NotFound()
             : Results.Ok(quote);
     });
-
 
 // DELETE QUOTE
 app.MapDelete(
@@ -248,7 +247,6 @@ app.MapDelete(
     })
     .RequireAuthorization("can-delete-own-quote");
 
-
 // CREATE COLLECTION
 app.MapPost(
     "/api/collections",
@@ -265,7 +263,6 @@ app.MapPost(
             $"/api/collections/{collection.Id}",
             collection);
     });
-
 
 // LOGIN
 app.MapPost(
@@ -291,37 +288,30 @@ app.MapPost(
 
         var jwtKey =
             configuration["Jwt:Key"]
-            ?? throw new InvalidOperationException(
-                "JWT key is not configured.");
+            ?? throw new InvalidOperationException("JWT key is not configured.");
 
         var jwtIssuer =
             configuration["Jwt:Issuer"]
-            ?? throw new InvalidOperationException(
-                "JWT issuer is not configured.");
+            ?? throw new InvalidOperationException("JWT issuer is not configured.");
 
         var jwtAudience =
             configuration["Jwt:Audience"]
-            ?? throw new InvalidOperationException(
-                "JWT audience is not configured.");
+            ?? throw new InvalidOperationException("JWT audience is not configured.");
 
         var expiresInMinutes =
-            configuration.GetValue<int>(
-                "Jwt:ExpiresInMinutes");
+            configuration.GetValue<int>("Jwt:ExpiresInMinutes");
 
         var expiresAt =
-            DateTime.UtcNow.AddMinutes(
-                expiresInMinutes);
+            DateTime.UtcNow.AddMinutes(expiresInMinutes);
 
         var claims = new[]
         {
             new Claim(
                 ClaimTypes.NameIdentifier,
                 user.Id.ToString()),
-
             new Claim(
                 ClaimTypes.Email,
                 user.Email),
-
             new Claim(
                 "scope",
                 "quotes.write")
@@ -352,23 +342,19 @@ app.MapPost(
         var refreshTokenHash =
             Convert.ToBase64String(
                 SHA256.HashData(
-                    Encoding.UTF8.GetBytes(
-                        refreshToken)));
+                    Encoding.UTF8.GetBytes(refreshToken)));
 
         var refreshTokenEntity =
             new RefreshToken
             {
                 Token = refreshTokenHash,
                 UserId = user.Id,
-                ExpiresAt =
-                    DateTimeOffset.UtcNow.AddDays(7)
+                ExpiresAt = DateTimeOffset.UtcNow.AddDays(7)
             };
 
-        db.RefreshTokens.Add(
-            refreshTokenEntity);
+        db.RefreshTokens.Add(refreshTokenEntity);
 
-        await db.SaveChangesAsync(
-            cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
 
         return Results.Ok(
             new
@@ -382,7 +368,6 @@ app.MapPost(
             });
     });
 
-
 // LOGOUT
 app.MapPost(
     "/api/auth/logout",
@@ -394,8 +379,7 @@ app.MapPost(
         var tokenHash =
             Convert.ToBase64String(
                 SHA256.HashData(
-                    Encoding.UTF8.GetBytes(
-                        request.RefreshToken)));
+                    Encoding.UTF8.GetBytes(request.RefreshToken)));
 
         var refreshToken =
             await db.RefreshTokens
@@ -408,16 +392,13 @@ app.MapPost(
 
         if (refreshToken.RevokedAt is null)
         {
-            refreshToken.RevokedAt =
-                DateTimeOffset.UtcNow;
+            refreshToken.RevokedAt = DateTimeOffset.UtcNow;
 
-            await db.SaveChangesAsync(
-                cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
         }
 
         return Results.NoContent();
     });
-
 
 // REFRESH TOKEN
 app.MapPost(
@@ -430,14 +411,12 @@ app.MapPost(
         IClock clock,
         CancellationToken cancellationToken) =>
     {
-        logger.LogInformation(
-            "Refresh request received");
+        logger.LogInformation("Refresh request received");
 
         var tokenHash =
             Convert.ToBase64String(
                 SHA256.HashData(
-                    Encoding.UTF8.GetBytes(
-                        request.RefreshToken)));
+                    Encoding.UTF8.GetBytes(request.RefreshToken)));
 
         var refreshToken =
             await db.RefreshTokens
@@ -464,11 +443,9 @@ app.MapPost(
                 var activeTokens =
                     await db.RefreshTokens
                         .Where(x =>
-                            x.UserId ==
-                                refreshToken.UserId &&
+                            x.UserId == refreshToken.UserId &&
                             x.RevokedAt == null)
-                        .ToListAsync(
-                            cancellationToken);
+                        .ToListAsync(cancellationToken);
 
                 var now = clock.UtcNow;
 
@@ -477,8 +454,7 @@ app.MapPost(
                     token.RevokedAt = now;
                 }
 
-                await db.SaveChangesAsync(
-                    cancellationToken);
+                await db.SaveChangesAsync(cancellationToken);
             }
 
             return Results.Unauthorized();
@@ -488,33 +464,26 @@ app.MapPost(
             "Checking refresh token expiration for {UserId}",
             refreshToken.UserId);
 
-        if (refreshToken.ExpiresAt <=
-            clock.UtcNow)
-        {
+        if (refreshToken.ExpiresAt <= clock.UtcNow)
             return Results.Unauthorized();
-        }
 
         if (refreshToken.User is null)
             return Results.Unauthorized();
 
         var jwtKey =
             configuration["Jwt:Key"]
-            ?? throw new InvalidOperationException(
-                "JWT key is not configured.");
+            ?? throw new InvalidOperationException("JWT key is not configured.");
 
         var jwtIssuer =
             configuration["Jwt:Issuer"]
-            ?? throw new InvalidOperationException(
-                "JWT issuer is not configured.");
+            ?? throw new InvalidOperationException("JWT issuer is not configured.");
 
         var jwtAudience =
             configuration["Jwt:Audience"]
-            ?? throw new InvalidOperationException(
-                "JWT audience is not configured.");
+            ?? throw new InvalidOperationException("JWT audience is not configured.");
 
         var expiresInMinutes =
-            configuration.GetValue<int>(
-                "Jwt:ExpiresInMinutes");
+            configuration.GetValue<int>("Jwt:ExpiresInMinutes");
 
         var expiresAt =
             clock.UtcNow.UtcDateTime
@@ -525,11 +494,9 @@ app.MapPost(
             new Claim(
                 ClaimTypes.NameIdentifier,
                 refreshToken.User.Id.ToString()),
-
             new Claim(
                 ClaimTypes.Email,
                 refreshToken.User.Email),
-
             new Claim(
                 "scope",
                 "quotes.write")
@@ -560,29 +527,22 @@ app.MapPost(
         var newRefreshTokenHash =
             Convert.ToBase64String(
                 SHA256.HashData(
-                    Encoding.UTF8.GetBytes(
-                        newRefreshToken)));
+                    Encoding.UTF8.GetBytes(newRefreshToken)));
 
         var replacement =
             new RefreshToken
             {
                 Token = newRefreshTokenHash,
                 UserId = refreshToken.UserId,
-                ExpiresAt =
-                    clock.UtcNow.AddDays(7)
+                ExpiresAt = clock.UtcNow.AddDays(7)
             };
 
-        db.RefreshTokens.Add(
-            replacement);
+        db.RefreshTokens.Add(replacement);
 
-        refreshToken.RevokedAt =
-            clock.UtcNow;
+        refreshToken.RevokedAt = clock.UtcNow;
+        refreshToken.ReplacedByToken = newRefreshTokenHash;
 
-        refreshToken.ReplacedByToken =
-            newRefreshTokenHash;
-
-        await db.SaveChangesAsync(
-            cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation(
             "Refresh token rotated for user {UserId}",
@@ -603,7 +563,6 @@ app.MapPost(
                         .TotalSeconds
             });
     });
-
 
 // CREATE QUOTE
 app.MapPost(
@@ -637,10 +596,15 @@ app.MapPost(
             return Results.ValidationProblem(
                 new Dictionary<string, string[]>
                 {
-                    [error.PropertyName] =
-                        [error.Message]
+                    [error.PropertyName] = [error.Message]
                 });
         }
+
+        using var activity =
+            activitySource.StartActivity(
+                "compute-recommendations");
+
+        activity?.SetTag("user.id", userId);
 
         var created =
             await repo.AddAsync(
@@ -652,7 +616,6 @@ app.MapPost(
             created);
     })
     .RequireAuthorization("can-edit-quotes");
-
 
 // DELETE COLLECTION ITEM
 app.MapDelete(
@@ -680,19 +643,17 @@ app.MapDelete(
         return Results.NoContent();
     });
 
-
 // Development seed data
 if (app.Environment.IsDevelopment())
 {
-    using var scope =
-        app.Services.CreateScope();
+    using var scope = app.Services.CreateScope();
 
     var db =
         scope.ServiceProvider
             .GetRequiredService<QuotesDbContext>();
 
     if (!await db.Users.AnyAsync(
-            u => u.Email == "test@example.com"))
+        u => u.Email == "test@example.com"))
     {
         db.Users.Add(
             new User
@@ -705,7 +666,7 @@ if (app.Environment.IsDevelopment())
     }
 
     if (!await db.Users.AnyAsync(
-            u => u.Email == "test2@example.com"))
+        u => u.Email == "test2@example.com"))
     {
         db.Users.Add(
             new User
@@ -716,8 +677,6 @@ if (app.Environment.IsDevelopment())
                         "Password123!")
             });
     }
-
     await db.SaveChangesAsync();
 }
-
 app.Run();
