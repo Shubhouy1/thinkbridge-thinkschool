@@ -16,12 +16,11 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Diagnostics;
 using OpenTelemetry.Trace;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
-
 var activitySource = new ActivitySource("QuotesApi");
-
-builder.Services.AddOpenTelemetry()
+var openTelemetry = builder.Services.AddOpenTelemetry()
     .WithTracing(tracing => tracing
         .AddAspNetCoreInstrumentation()
         .AddEntityFrameworkCoreInstrumentation()
@@ -31,6 +30,17 @@ builder.Services.AddOpenTelemetry()
         {
             options.Endpoint = new Uri("http://localhost:4317");
         }));
+
+var appInsightsConnectionString =
+    builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"];
+
+if (!string.IsNullOrWhiteSpace(appInsightsConnectionString))
+{
+    openTelemetry.UseAzureMonitor(options =>
+    {
+        options.ConnectionString = appInsightsConnectionString;
+    });
+}
 
 builder.Host.UseSerilog((context, services, configuration) =>
 {
@@ -60,19 +70,14 @@ builder.Services.AddSingleton<IClock, SystemClock>();
 // JWT configuration
 var jwtKey = builder.Configuration["Jwt:Key"]
     ?? throw new InvalidOperationException("JWT key is not configured.");
-
 var jwtIssuer = builder.Configuration["Jwt:Issuer"]
     ?? throw new InvalidOperationException("JWT issuer is not configured.");
-
 var jwtAudience = builder.Configuration["Jwt:Audience"]
     ?? throw new InvalidOperationException("JWT audience is not configured.");
-
 var entraTenantId = builder.Configuration["Entra:TenantId"]
     ?? throw new InvalidOperationException("Entra tenant ID is not configured.");
-
 var entraAudience = builder.Configuration["Entra:Audience"]
     ?? throw new InvalidOperationException("Entra audience is not configured.");
-
 var entraAuthority = $"https://login.microsoftonline.com/{entraTenantId}/v2.0";
 
 // Authentication
@@ -91,22 +96,18 @@ builder.Services
             {
                 var authorization =
                     context.Request.Headers.Authorization.ToString();
-
                 if (!authorization.StartsWith(
                         "Bearer ",
                         StringComparison.OrdinalIgnoreCase))
                 {
                     return "SelfJwt";
                 }
-
                 var token = authorization["Bearer ".Length..].Trim();
-
                 try
                 {
                     var jwt =
                         new JwtSecurityTokenHandler()
                             .ReadJwtToken(token);
-
                     return jwt.Issuer.StartsWith(
                         "https://login.microsoftonline.com/",
                         StringComparison.OrdinalIgnoreCase)
@@ -144,7 +145,6 @@ builder.Services
         {
             options.Authority = entraAuthority;
             options.Audience = entraAudience;
-
             options.TokenValidationParameters =
                 new TokenValidationParameters
                 {
@@ -165,7 +165,6 @@ builder.Services.AddAuthorization(options =>
             policy.RequireClaim(
                 "scope",
                 "quotes.write"));
-
     options.AddPolicy(
         "can-delete-own-quote",
         policy =>
@@ -181,7 +180,6 @@ app.Use(async (ctx, next) =>
 {
     var traceId = Activity.Current?.TraceId.ToString()
                   ?? ctx.TraceIdentifier;
-
     using (LogContext.PushProperty("TraceId", traceId))
     {
         await next();
@@ -203,12 +201,10 @@ app.MapGet(
     {
         page = page < 1 ? 1 : page;
         size = size < 1 ? 10 : size;
-
         var quotes = await repo.GetAllAsync(
             page,
             size,
             cancellationToken);
-
         return Results.Ok(quotes);
     });
 
@@ -223,7 +219,6 @@ app.MapGet(
         var quote = await repo.GetByIdAsync(
             id,
             cancellationToken);
-
         return quote is null
             ? Results.NotFound()
             : Results.Ok(quote);
@@ -240,7 +235,6 @@ app.MapDelete(
         var deleted = await repo.DeleteAsync(
             id,
             cancellationToken);
-
         return deleted
             ? Results.NoContent()
             : Results.NotFound();
@@ -258,7 +252,6 @@ app.MapPost(
         await repo.Add(
             collection,
             cancellationToken);
-
         return Results.Created(
             $"/api/collections/{collection.Id}",
             collection);
@@ -277,7 +270,6 @@ app.MapPost(
             await db.Users.FirstOrDefaultAsync(
                 u => u.Email == request.Email,
                 cancellationToken);
-
         if (user is null ||
             !BCrypt.Net.BCrypt.Verify(
                 request.Password,
@@ -285,25 +277,19 @@ app.MapPost(
         {
             return Results.Unauthorized();
         }
-
         var jwtKey =
             configuration["Jwt:Key"]
             ?? throw new InvalidOperationException("JWT key is not configured.");
-
         var jwtIssuer =
             configuration["Jwt:Issuer"]
             ?? throw new InvalidOperationException("JWT issuer is not configured.");
-
         var jwtAudience =
             configuration["Jwt:Audience"]
             ?? throw new InvalidOperationException("JWT audience is not configured.");
-
         var expiresInMinutes =
             configuration.GetValue<int>("Jwt:ExpiresInMinutes");
-
         var expiresAt =
             DateTime.UtcNow.AddMinutes(expiresInMinutes);
-
         var claims = new[]
         {
             new Claim(
@@ -316,13 +302,11 @@ app.MapPost(
                 "scope",
                 "quotes.write")
         };
-
         var credentials =
             new SigningCredentials(
                 new SymmetricSecurityKey(
                     Encoding.UTF8.GetBytes(jwtKey)),
                 SecurityAlgorithms.HmacSha256);
-
         var token =
             new JwtSecurityToken(
                 issuer: jwtIssuer,
@@ -330,20 +314,16 @@ app.MapPost(
                 claims: claims,
                 expires: expiresAt,
                 signingCredentials: credentials);
-
         var accessToken =
             new JwtSecurityTokenHandler()
                 .WriteToken(token);
-
         var refreshToken =
             Convert.ToBase64String(
                 RandomNumberGenerator.GetBytes(32));
-
         var refreshTokenHash =
             Convert.ToBase64String(
                 SHA256.HashData(
                     Encoding.UTF8.GetBytes(refreshToken)));
-
         var refreshTokenEntity =
             new RefreshToken
             {
@@ -351,11 +331,8 @@ app.MapPost(
                 UserId = user.Id,
                 ExpiresAt = DateTimeOffset.UtcNow.AddDays(7)
             };
-
         db.RefreshTokens.Add(refreshTokenEntity);
-
         await db.SaveChangesAsync(cancellationToken);
-
         return Results.Ok(
             new
             {
@@ -380,23 +357,18 @@ app.MapPost(
             Convert.ToBase64String(
                 SHA256.HashData(
                     Encoding.UTF8.GetBytes(request.RefreshToken)));
-
         var refreshToken =
             await db.RefreshTokens
                 .FirstOrDefaultAsync(
                     x => x.Token == tokenHash,
                     cancellationToken);
-
         if (refreshToken is null)
             return Results.NoContent();
-
         if (refreshToken.RevokedAt is null)
         {
             refreshToken.RevokedAt = DateTimeOffset.UtcNow;
-
             await db.SaveChangesAsync(cancellationToken);
         }
-
         return Results.NoContent();
     });
 
@@ -412,26 +384,21 @@ app.MapPost(
         CancellationToken cancellationToken) =>
     {
         logger.LogInformation("Refresh request received");
-
         var tokenHash =
             Convert.ToBase64String(
                 SHA256.HashData(
                     Encoding.UTF8.GetBytes(request.RefreshToken)));
-
         var refreshToken =
             await db.RefreshTokens
                 .Include(x => x.User)
                 .FirstOrDefaultAsync(
                     x => x.Token == tokenHash,
                     cancellationToken);
-
         logger.LogInformation(
             "Refresh token lookup completed. Found: {TokenFound}",
             refreshToken is not null);
-
         if (refreshToken is null)
             return Results.Unauthorized();
-
         if (refreshToken.RevokedAt is not null)
         {
             if (refreshToken.ReplacedByToken is not null)
@@ -439,56 +406,42 @@ app.MapPost(
                 logger.LogWarning(
                     "Refresh token reuse detected for UserId {UserId}.",
                     refreshToken.UserId);
-
                 var activeTokens =
                     await db.RefreshTokens
                         .Where(x =>
                             x.UserId == refreshToken.UserId &&
                             x.RevokedAt == null)
                         .ToListAsync(cancellationToken);
-
                 var now = clock.UtcNow;
-
                 foreach (var token in activeTokens)
                 {
                     token.RevokedAt = now;
                 }
-
                 await db.SaveChangesAsync(cancellationToken);
             }
-
             return Results.Unauthorized();
         }
-
         logger.LogInformation(
             "Checking refresh token expiration for {UserId}",
             refreshToken.UserId);
-
         if (refreshToken.ExpiresAt <= clock.UtcNow)
             return Results.Unauthorized();
-
         if (refreshToken.User is null)
             return Results.Unauthorized();
-
         var jwtKey =
             configuration["Jwt:Key"]
             ?? throw new InvalidOperationException("JWT key is not configured.");
-
         var jwtIssuer =
             configuration["Jwt:Issuer"]
             ?? throw new InvalidOperationException("JWT issuer is not configured.");
-
         var jwtAudience =
             configuration["Jwt:Audience"]
             ?? throw new InvalidOperationException("JWT audience is not configured.");
-
         var expiresInMinutes =
             configuration.GetValue<int>("Jwt:ExpiresInMinutes");
-
         var expiresAt =
             clock.UtcNow.UtcDateTime
                 .AddMinutes(expiresInMinutes);
-
         var claims = new[]
         {
             new Claim(
@@ -501,13 +454,11 @@ app.MapPost(
                 "scope",
                 "quotes.write")
         };
-
         var credentials =
             new SigningCredentials(
                 new SymmetricSecurityKey(
                     Encoding.UTF8.GetBytes(jwtKey)),
                 SecurityAlgorithms.HmacSha256);
-
         var jwt =
             new JwtSecurityToken(
                 issuer: jwtIssuer,
@@ -515,20 +466,16 @@ app.MapPost(
                 claims: claims,
                 expires: expiresAt,
                 signingCredentials: credentials);
-
         var accessToken =
             new JwtSecurityTokenHandler()
                 .WriteToken(jwt);
-
         var newRefreshToken =
             Convert.ToBase64String(
                 RandomNumberGenerator.GetBytes(32));
-
         var newRefreshTokenHash =
             Convert.ToBase64String(
                 SHA256.HashData(
                     Encoding.UTF8.GetBytes(newRefreshToken)));
-
         var replacement =
             new RefreshToken
             {
@@ -536,22 +483,16 @@ app.MapPost(
                 UserId = refreshToken.UserId,
                 ExpiresAt = clock.UtcNow.AddDays(7)
             };
-
         db.RefreshTokens.Add(replacement);
-
         refreshToken.RevokedAt = clock.UtcNow;
         refreshToken.ReplacedByToken = newRefreshTokenHash;
-
         await db.SaveChangesAsync(cancellationToken);
-
         logger.LogInformation(
             "Refresh token rotated for user {UserId}",
             refreshToken.UserId);
-
         logger.LogInformation(
             "Refresh request completed successfully for user {UserId}",
             refreshToken.UserId);
-
         return Results.Ok(
             new
             {
@@ -576,7 +517,6 @@ app.MapPost(
         var userIdClaim =
             httpContext.User.FindFirst(
                 ClaimTypes.NameIdentifier);
-
         if (userIdClaim is null ||
             !int.TryParse(
                 userIdClaim.Value,
@@ -584,13 +524,11 @@ app.MapPost(
         {
             return Results.Unauthorized();
         }
-
         var (quote, error) =
             Quote.Create(
                 request.Author,
                 request.Text,
                 userId);
-
         if (error is not null)
         {
             return Results.ValidationProblem(
@@ -599,18 +537,14 @@ app.MapPost(
                     [error.PropertyName] = [error.Message]
                 });
         }
-
         using var activity =
             activitySource.StartActivity(
                 "compute-recommendations");
-
         activity?.SetTag("user.id", userId);
-
         var created =
             await repo.AddAsync(
                 quote!,
                 cancellationToken);
-
         return Results.Created(
             $"/api/quotes/{created.Id}",
             created);
@@ -630,16 +564,12 @@ app.MapDelete(
             await repo.GetById(
                 id,
                 cancellationToken);
-
         if (collection is null)
             return Results.NotFound();
-
         collection.RemoveItem(quoteId);
-
         await repo.Update(
             collection,
             cancellationToken);
-
         return Results.NoContent();
     });
 
@@ -647,11 +577,9 @@ app.MapDelete(
 if (app.Environment.IsDevelopment())
 {
     using var scope = app.Services.CreateScope();
-
     var db =
         scope.ServiceProvider
             .GetRequiredService<QuotesDbContext>();
-
     if (!await db.Users.AnyAsync(
         u => u.Email == "test@example.com"))
     {
@@ -664,7 +592,6 @@ if (app.Environment.IsDevelopment())
                         "Password123!")
             });
     }
-
     if (!await db.Users.AnyAsync(
         u => u.Email == "test2@example.com"))
     {
@@ -679,4 +606,5 @@ if (app.Environment.IsDevelopment())
     }
     await db.SaveChangesAsync();
 }
+
 app.Run();
