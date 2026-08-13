@@ -1,13 +1,13 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8" ?>
 <RunSettings>
   <DataCollectionRunSettings>
     <DataCollectors>
       <DataCollector friendlyName="XPlat Code Coverage">
         <Configuration>
           <Format>cobertura</Format>
-          <Exclude>
-            [QuotesApi]QuotesApi.Migrations.*
-          </Exclude>
+          <Include>
+            [QuotesApi]QuotesApi.Authorization.*,[QuotesApi]QuotesApi.Services.RefreshTokenService,[QuotesApi]QuotesApi.Models.RefreshToken,[QuotesApi]QuotesApi.Models.RefreshRequest,[QuotesApi]QuotesApi.Models.LoginRequest,[QuotesApi]QuotesApi.Models.User,[QuotesApi]QuotesApi.Models.TokenResponse,[QuotesApi]QuotesApi.Middleware.ExceptionMiddleware,[QuotesApi]Program*
+          </Include>
         </Configuration>
       </DataCollector>
     </DataCollectors>
